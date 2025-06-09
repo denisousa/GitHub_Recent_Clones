@@ -13,3 +13,14 @@ GH_TOKEN=<your_github_token>
 ```cmd
 pip install requirements.txt
 ```
+
+
+Heurística:
+**Clones adicionados**
+
+Indexar código completo do commit PRb
+Gerar um diff entre PRb e PRm para cada arquivo.java 
+Capturar todos os blocos adicionados e removidos
+Para cada bloco adicionado que é igual ao bloco removido, remover eles (blocos movidos)
+
+Search blocos de código adicionados
