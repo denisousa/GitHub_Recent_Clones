@@ -49,7 +49,7 @@ def extract_valid_blocks(diff_file_path, min_block_size):
 
         # Case -/+ or +/-
         if (line[0] == '-' and positive_block) or (line[0] == '+' and not positive_block):
-            if len(valid_block) >= min_block_size:
+            if has_function_with_min_lines(''.join(valid_block), min_block_size):
                 if line[0] == '-':
                     code_block['removed'].append(''.join(valid_block))
                 else:
@@ -64,7 +64,7 @@ def extract_valid_blocks(diff_file_path, min_block_size):
 
         # Case -/'' or +/''
         if (line[0] != '-' and line[0] != '+'):
-            if len(valid_block) >= min_block_size:
+            if has_function_with_min_lines(''.join(valid_block), min_block_size):
                 if line[0] == '-':
                     code_block['removed'].append(''.join(valid_block))
                 else:
@@ -102,6 +102,35 @@ def get_add_blocks(filename):
 def get_removed_blocks():
     pass
 
+def has_function_with_min_lines(java_code: str, min_lines: int) -> bool:
+    # Pattern to match Java method declarations
+    method_pattern = r'(?:public|private|protected|static|\s)*\s*[\w<>[\]]+\s+(\w+)\s*\([^)]*\)\s*(?:throws\s+[\w,\s]+)?\s*\{'
+    
+    # Find all method declarations
+    method_matches = re.finditer(method_pattern, java_code)
+    
+    for match in method_matches:
+        start_pos = match.start()
+        # Find the corresponding closing brace
+        brace_count = 1
+        current_pos = start_pos + 1
+        
+        while brace_count > 0 and current_pos < len(java_code):
+            if java_code[current_pos] == '{':
+                brace_count += 1
+            elif java_code[current_pos] == '}':
+                brace_count -= 1
+            current_pos += 1
+            
+        if brace_count == 0:
+            # Count lines in the method body
+            method_body = java_code[start_pos:current_pos]
+            line_count = method_body.count('\n') + 1
+            
+            if line_count >= min_lines:
+                return True
+                
+    return False
 
 load_dotenv()
 
@@ -132,11 +161,11 @@ for file in diff_java_files:
     if re.search(r'\btest\b', file.filename, re.IGNORECASE):
         remove_files_test += 1
 
-    complete_path_to_diff = generate_diff_file(file, f"{file.filename}.diff")
+    complete_path_to_diffs = generate_diff_file(file, f"{file.filename}.diff")
     print(f"Filename: {file.filename}")
     print(f"Changes:\n{file.patch}")
     
-    blocks = extract_valid_blocks(complete_path_to_diff, 6)
+    blocks = extract_valid_blocks(complete_path_to_diffs, 8)
     blocks = filter_unique_code_blocks(blocks['removed'], blocks['added'])
     if blocks['removed'] or blocks['added']:
         [print(f'added block: {i}\n', block, "*******************************") for i, block in enumerate(blocks['removed'])]
