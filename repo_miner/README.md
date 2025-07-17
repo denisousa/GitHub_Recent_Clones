@@ -42,8 +42,12 @@ Follow these steps to get your development environment set up:
       ```
     - **Crucial:** Open the newly created `.env` file and add your **GitHub Personal Access Token** to the `GITHUB_TOKEN` variable. This is required to interact with the GitHub API.
 
-3.  **Install dependencies:**
-    - The `uv run` command used in the execution scripts will automatically detect your `requirements.txt` or `pyproject.toml` and install the necessary dependencies in a virtual environment. No manual installation step is needed.
+3.  **Install or Sync Dependencies:**
+    - Before running the application, synchronize your virtual environment. This command installs all required packages from your `requirements.txt` or `pyproject.toml`.
+      ```sh
+      uv sync
+      ```
+    - `uv` will automatically create and manage a virtual environment (in a `.venv` folder) if one doesn't exist.
 
 ## How to Run
 
@@ -93,5 +97,4 @@ All major settings can be adjusted in the `.env` file:
 ├── main.py               # Main entry point of the application
 ├── post_processing.py    # Handles consolidation and filtering
 ├── run.bat               # Execution script for Windows
-└── run.sh                # Execution script for Linux/macOS
-```
+└── run.sh                # Execution script
