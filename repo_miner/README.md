@@ -98,3 +98,4 @@ All major settings can be adjusted in the `.env` file:
 ├── post_processing.py    # Handles consolidation and filtering
 ├── run.bat               # Execution script for Windows
 └── run.sh                # Execution script
+```
