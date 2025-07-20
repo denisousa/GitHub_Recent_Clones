@@ -4,6 +4,11 @@ projects/*
 /elasticsearch-2.2.0
 siamese/search_results
 
+added_*.yaml
+removed_*.yaml
+blocks/*
+artifacts
+blocks_report.txt
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

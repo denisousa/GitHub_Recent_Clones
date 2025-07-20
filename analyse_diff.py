@@ -1,82 +1,104 @@
-from github import Github
+from github import Github, Auth
 from dotenv import load_dotenv
+from lsh_operation import filter_unique_code_blocks
+from github_operations import checkout_repo_commit_by_index, download_java_files_from_github
 from simian_operations import execute_simian
-import difflib
-import re
+from yaml_operations import extract_blocks_to_csv
+import random
+import string
 import os
+import re
 
-def filter_unique_code_blocks(removed_blocks, added_blocks, similarity_threshold=0.5):
-    to_remove_from_removed = set()
-    to_remove_from_added = set()
+load_dotenv()
+token = os.getenv("GH_TOKEN")
 
-    for i, r_block in enumerate(removed_blocks):
-        for j, a_block in enumerate(added_blocks):
-            ratio = difflib.SequenceMatcher(None, r_block.strip(), a_block.strip()).ratio()
-            if ratio >= similarity_threshold:
-                to_remove_from_removed.add(i)
-                to_remove_from_added.add(j)
+def save_code_blocks(blocks: dict, base_dir: str = "."):
+    folder_path_result = []
+    for key in ['added', 'removed']:
+        block_list = blocks.get(key, [])
+        os.makedirs('blocks', exist_ok=True)
 
-    result = {
-        'removed': [block for i, block in enumerate(removed_blocks) if i not in to_remove_from_removed],
-        'added': [block for j, block in enumerate(added_blocks) if j not in to_remove_from_added]
-    }
+        hash_suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
+        folder_name = f"blocks/blocks_{key}_{hash_suffix}"
+        folder_path = os.path.join(base_dir, folder_name)
 
-    return result
+        folder_path_result.append(folder_path)
+        
+        os.system(f'rm -rf "{folder_path}"')
+        os.makedirs(folder_path)
+
+        for i, code in enumerate(block_list, start=1):
+            file_path = os.path.join(folder_path, f"block_{i}.java")
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write(code)
+
+        print(f"Saved {len(block_list)} blocks to '{folder_name}'")
+
+    return folder_path_result
+
+def remove_prints_comments_and_blank_lines(java_code: str) -> str:
+    java_code = re.sub(r'/\*[\s\S]*?\*/', '', java_code)
+    java_code = re.sub(r'//.*', '', java_code)
+    java_code = re.sub(
+        r'\bSystem\.out\.print(?:ln)?\s*\((?:[^()"]+|"(?:\\.|[^"\\])*")*\)\s*;',
+        '', java_code
+    )
+    java_code = "\n".join(line for line in java_code.splitlines() if line.strip())
+    return java_code
+
+
+def clean_java_code(java_code):
+    # TODO: Put Formatter Java Code
+    cleaned_code = remove_prints_comments_and_blank_lines(java_code)
+    return cleaned_code
 
 
 def extract_valid_blocks(diff_file_path, min_block_size):
-    """
-    Extracts changed blocks from a diff file where '-' lines are followed by '+' lines.
-    Returns a list of dictionaries with 'removed' and 'added' code blocks.
-    """
+    with open(diff_file_path, encoding='utf-8') as file:
+        lines = file.readlines()
 
-    lines = open(diff_file_path, encoding='utf-8').readlines()
     code_block = {'added': [], 'removed': []}
+    current_block = []  # Store current block lines without '+' or '-'
+    current_type = None  # '+' or '-'
 
-    valid_block = []
-    positive_block = None
-    for line in lines[3:]:
-        
-        # Case vazio
-        if len(valid_block) == 0:
-            if line.startswith('-'):
-                valid_block.append(line)
-                positive_block = False
-            if line.startswith('+'):
-                valid_block.append(line)
-                positive_block = True
-            continue
+    for line in lines[3:]:  # Skip first 3 diff lines
+        if line.startswith('+') or line.startswith('-'):
+            content = line[1:]  # Remove '+' or '-'
 
-        # Case -/+ or +/-
-        if (line[0] == '-' and positive_block) or (line[0] == '+' and not positive_block):
-            if has_function_with_min_lines(''.join(valid_block), min_block_size):
-                if line[0] == '-':
-                    code_block['removed'].append(''.join(valid_block))
-                else:
-                    code_block['added'].append(''.join(valid_block))
-
-            if line.startswith('-'):
-                positive_block = False
+            if current_type is None:
+                current_type = line[0]
+                current_block = [content]
+            elif current_type == line[0]:
+                current_block.append(content)
             else:
-                positive_block = True
+                # Store previous block if large enough
+                if len(current_block) >= min_block_size:
+                    if current_type == '-':
+                        code_block['removed'].append(''.join(current_block))
+                    elif current_type == '+':
+                        code_block['added'].append(''.join(current_block))
 
-            valid_block = [line]           
+                # Start new block
+                current_type = line[0]
+                current_block = [content]
+        else:
+            # Non-modified line → finalize current block if needed
+            if len(current_block) >= min_block_size:
+                if current_type == '-':
+                    code_block['removed'].append(''.join(current_block))
+                elif current_type == '+':
+                    code_block['added'].append(''.join(current_block))
 
-        # Case -/'' or +/''
-        if (line[0] != '-' and line[0] != '+'):
-            if has_function_with_min_lines(''.join(valid_block), min_block_size):
-                if line[0] == '-':
-                    code_block['removed'].append(''.join(valid_block))
-                else:
-                    code_block['added'].append(''.join(valid_block))
+            current_type = None
+            current_block = []
 
-            positive_block = None
-            valid_block = []     
+    # Final check for last block
+    if len(current_block) >= min_block_size:
+        if current_type == '-':
+            code_block['removed'].append(''.join(current_block))
+        elif current_type == '+':
+            code_block['added'].append(''.join(current_block))
 
-        # Case -/- or +/+
-        if (line[0] == '-' and not positive_block) or (line[0] == '+' and positive_block):
-            valid_block.append(line)
-        
     return code_block
 
 
@@ -96,22 +118,13 @@ def generate_diff_file(file, filename: str) -> None:
     
     return complete_path_to_diff
 
-def get_add_blocks(filename):
-    pass
-
-def get_removed_blocks():
-    pass
-
 def has_function_with_min_lines(java_code: str, min_lines: int) -> bool:
-    # Pattern to match Java method declarations
     method_pattern = r'(?:public|private|protected|static|\s)*\s*[\w<>[\]]+\s+(\w+)\s*\([^)]*\)\s*(?:throws\s+[\w,\s]+)?\s*\{'
     
-    # Find all method declarations
     method_matches = re.finditer(method_pattern, java_code)
     
     for match in method_matches:
         start_pos = match.start()
-        # Find the corresponding closing brace
         brace_count = 1
         current_pos = start_pos + 1
         
@@ -123,7 +136,6 @@ def has_function_with_min_lines(java_code: str, min_lines: int) -> bool:
             current_pos += 1
             
         if brace_count == 0:
-            # Count lines in the method body
             method_body = java_code[start_pos:current_pos]
             line_count = method_body.count('\n') + 1
             
@@ -132,20 +144,22 @@ def has_function_with_min_lines(java_code: str, min_lines: int) -> bool:
                 
     return False
 
-load_dotenv()
+repo_name = 'Stirling-Tools/Stirling-PDF'
+checkout_repo_commit_by_index(
+    repo_name=repo_name,
+    commit_index=80,
+)
 
-token = os.getenv("GH_TOKEN")
-g = Github(token)
-
-repo = g.get_repo('Stirling-Tools/Stirling-PDF')
+auth = Auth.Token(token)
+g = Github(auth=auth)
+repo = g.get_repo(repo_name)
 
 commits = repo.get_commits()
-current_commit = commits[0]
-previous_commit = commits[70]
+current_commit = commits[80]
+previous_commit = commits[90]
 
 os.system('rm -rf diff_files')
-if not os.path.exists('diff_files'):
-    os.makedirs('diff_files')
+os.makedirs('diff_files')
 
 diff = repo.compare(previous_commit.sha, current_commit.sha)
 diff_java_files = [file for file in diff.files if file.filename.endswith(".java")]
@@ -153,10 +167,10 @@ diff_java_files = [file for file in diff.files if file.filename.endswith(".java"
 add_blocks_list = []
 removed_blocks_list = []
 
+os.system("rm -rf blocks_added.csv")
+os.system("rm -rf blocks_removed.csv")
+
 remove_files_test = 0
-
-# execute_simian('diff_files', 'diff')
-
 for file in diff_java_files:
     if re.search(r'\btest\b', file.filename, re.IGNORECASE):
         remove_files_test += 1
@@ -165,21 +179,19 @@ for file in diff_java_files:
     print(f"Filename: {file.filename}")
     print(f"Changes:\n{file.patch}")
     
-    blocks = extract_valid_blocks(complete_path_to_diffs, 8)
-    blocks = filter_unique_code_blocks(blocks['removed'], blocks['added'])
-    if blocks['removed'] or blocks['added']:
-        [print(f'added block: {i}\n', block, "*******************************") for i, block in enumerate(blocks['removed'])]
-        print('============================')
+    blocks = extract_valid_blocks(complete_path_to_diffs, 4)
+    blocks['removed'] = [clean_java_code(block) for block in blocks['removed']]
+    blocks['added'] = [clean_java_code(block) for block in blocks['added']]
+    blocks = filter_unique_code_blocks(blocks)
+    folder_result = save_code_blocks(blocks)
 
-        [print(f'removed block: {i}\n', block, "*******************************") for i, block in enumerate(blocks['added'])]
-        print('============================')
+    folder_name = repo_name.split('/')[-1] 
+    added_yaml_result = f'added_{folder_name}.yaml'
+    removed_yaml_result = f'removed_{folder_name}.yaml'
+    
+    execute_simian(folder_result[0], folder_name, 'java', added_yaml_result)
+    execute_simian(folder_result[1], folder_name, 'java', removed_yaml_result)
 
-    # add_blocks = get_add_blocks(complete_path_to_diff)
-    # if add_blocks:
-    #     add_blocks_list.append({complete_path_to_diff: add_blocks})
+    extract_blocks_to_csv(added_yaml_result, "blocks_added.csv", file.filename)
+    extract_blocks_to_csv(removed_yaml_result, "blocks_removed.csv", file.filename)
 
-    # removed_blocks = get_removed_blocks(complete_path_to_diff) 
-    # if removed_blocks:
-    #     removed_blocks_list.remove({complete_path_to_diff: removed_blocks})
-
-print(f'REMOVED FILES TEST: {remove_files_test}')
