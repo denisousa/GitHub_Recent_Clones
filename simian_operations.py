@@ -55,3 +55,4 @@ def filter_unique_code_blocks(removed_blocks, added_blocks):
     }
 
     return result
+

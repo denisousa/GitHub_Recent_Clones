@@ -3,6 +3,12 @@ diff_files/*
 projects/*
 /elasticsearch-2.2.0
 siamese/search_results
+prs_diffs
+simian_result
+result.csv
+repos.json
+added_result.csv
+removed_result.csv
 
 added_*.yaml
 removed_*.yaml

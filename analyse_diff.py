@@ -1,9 +1,10 @@
 from github import Github, Auth
 from dotenv import load_dotenv
 from lsh_operation import filter_unique_code_blocks
-from github_operations import checkout_repo_commit_by_index, download_java_files_from_github
+from github_operations import fetch_recent_merged_prs, extract_java_diffs_from_pr, clone_and_checkout_pr_base_commit
 from simian_operations import execute_simian
 from yaml_operations import extract_blocks_to_csv
+from datetime import datetime
 import random
 import string
 import os
@@ -12,29 +13,25 @@ import re
 load_dotenv()
 token = os.getenv("GH_TOKEN")
 
-def save_code_blocks(blocks: dict, base_dir: str = "."):
-    folder_path_result = []
-    for key in ['added', 'removed']:
-        block_list = blocks.get(key, [])
-        os.makedirs('blocks', exist_ok=True)
+def save_code_blocks(type_folder, blocks: dict, base_dir: str = "."):
+    block_list = blocks.get(type_folder, [])
+    os.makedirs('blocks', exist_ok=True)
 
-        hash_suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
-        folder_name = f"blocks/blocks_{key}_{hash_suffix}"
-        folder_path = os.path.join(base_dir, folder_name)
+    hash_suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
+    folder_name = f"blocks/blocks_{type_folder}_{hash_suffix}"
+    folder_path = os.path.join(base_dir, folder_name)
 
-        folder_path_result.append(folder_path)
-        
-        os.system(f'rm -rf "{folder_path}"')
-        os.makedirs(folder_path)
+    os.system(f'rm -rf "{folder_path}"')
+    os.makedirs(folder_path)
 
-        for i, code in enumerate(block_list, start=1):
-            file_path = os.path.join(folder_path, f"block_{i}.java")
-            with open(file_path, "w", encoding="utf-8") as f:
-                f.write(code)
+    for i, code in enumerate(block_list, start=1):
+        file_path = os.path.join(folder_path, f"block_{i}.java")
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write(code)
 
-        print(f"Saved {len(block_list)} blocks to '{folder_name}'")
+    print(f"Saved {len(block_list)} blocks to '{folder_name}'")
 
-    return folder_path_result
+    return folder_path
 
 def remove_prints_comments_and_blank_lines(java_code: str) -> str:
     java_code = re.sub(r'/\*[\s\S]*?\*/', '', java_code)
@@ -144,54 +141,76 @@ def has_function_with_min_lines(java_code: str, min_lines: int) -> bool:
                 
     return False
 
-repo_name = 'Stirling-Tools/Stirling-PDF'
-checkout_repo_commit_by_index(
-    repo_name=repo_name,
-    commit_index=80,
-)
+if __name__ == "__main__":
 
-auth = Auth.Token(token)
-g = Github(auth=auth)
-repo = g.get_repo(repo_name)
+    ini = datetime.now()
 
-commits = repo.get_commits()
-current_commit = commits[80]
-previous_commit = commits[90]
+    repo_name = 'libgdx/libgdx'
+    repos_list = 'repo'
+    repo_complete_path = f'{repos_list}/{repo_name.split("/")[-1]}'
+    simian_result = 'simian_result'
+    os.makedirs(simian_result, exist_ok=True)
 
-os.system('rm -rf diff_files')
-os.makedirs('diff_files')
+    output_diffs = 'diff_files'
+    merged_prs = fetch_recent_merged_prs(repo_name, 365)
 
-diff = repo.compare(previous_commit.sha, current_commit.sha)
-diff_java_files = [file for file in diff.files if file.filename.endswith(".java")]
+    remove_files_test = 0
+    os.system("rm -rf added_result.csv removed_result.csv")
 
-add_blocks_list = []
-removed_blocks_list = []
+    for pr in merged_prs:
+        clone_and_checkout_pr_base_commit(repo_name, pr["number"], base_dir=repos_list)
+        extract_java_diffs_from_pr(pr, output_diffs)
+        
+        diff_files =  os.listdir(output_diffs)
+        if len(diff_files) == 0:
+            continue
 
-os.system("rm -rf blocks_added.csv")
-os.system("rm -rf blocks_removed.csv")
+        for file in diff_files:
+            complete_path_to_diffs = f'{output_diffs}/{file}'
+            diff_file_content = open(complete_path_to_diffs, 'r').read()
 
-remove_files_test = 0
-for file in diff_java_files:
-    if re.search(r'\btest\b', file.filename, re.IGNORECASE):
-        remove_files_test += 1
+            if re.search(r'\btest\b', diff_file_content.split('\n')[0], re.IGNORECASE):
+                remove_files_test += 1
+                continue
+            
+            blocks = extract_valid_blocks(complete_path_to_diffs, 4)
+            if len(blocks['removed']) == 0 and len(blocks['added']) == 0:
+                continue
+            
+            info_df = {
+                "repo_name": repo_name,
+                "repo_link": f"https://github.com/{repo_name}",
+                "pr_link": f"https://github.com/{repo_name}/pull/{pr['number']}",
+                "pr_diff": pr["diff_url"],
+                "pr_number": pr["number"]
+            }
 
-    complete_path_to_diffs = generate_diff_file(file, f"{file.filename}.diff")
-    print(f"Filename: {file.filename}")
-    print(f"Changes:\n{file.patch}")
-    
-    blocks = extract_valid_blocks(complete_path_to_diffs, 4)
-    blocks['removed'] = [clean_java_code(block) for block in blocks['removed']]
-    blocks['added'] = [clean_java_code(block) for block in blocks['added']]
-    blocks = filter_unique_code_blocks(blocks)
-    folder_result = save_code_blocks(blocks)
+            folder_name = repo_name.split('/')[-1] 
+            folder_result = {}
+            yaml_result = {}
+            if len(blocks['removed']) != 0:
+                blocks['removed'] = [clean_java_code(block) for block in blocks['removed']]
+                blocks = filter_unique_code_blocks(blocks)
+                folder_result['removed'] = save_code_blocks('removed', blocks)
+                yaml_result['removed'] = f'{simian_result}/removed_{folder_name}_pr{pr["number"]}.yaml'
+                execute_simian(folder_result['removed'], repo_complete_path, 'java', yaml_result['removed'])
+                info_df["simian_result_removed"] = yaml_result["added"] if yaml_result.get("added") else None
+                info_df["block_removed_path"] = folder_result["removed"] if folder_result.get("removed") else None
+                info_df["qtd_blocks_removed"] = len(folder_result["removed"]) if folder_result.get("removed") else 0
+                extract_blocks_to_csv(yaml_result['removed'], info_df, 'removed')
 
-    folder_name = repo_name.split('/')[-1] 
-    added_yaml_result = f'added_{folder_name}.yaml'
-    removed_yaml_result = f'removed_{folder_name}.yaml'
-    
-    execute_simian(folder_result[0], folder_name, 'java', added_yaml_result)
-    execute_simian(folder_result[1], folder_name, 'java', removed_yaml_result)
+            if len(blocks['added']) != 0:
+                blocks['added'] = [clean_java_code(block) for block in blocks['added']]
+                blocks = filter_unique_code_blocks(blocks)
+                folder_result['added'] = save_code_blocks('added', blocks)
+                yaml_result['added'] = f'{simian_result}/added_{folder_name}_pr{pr["number"]}.yaml'
+                execute_simian(folder_result['added'], repo_complete_path, 'java', yaml_result['added'])
+                info_df["simian_result_addeed"] = yaml_result["added"] if yaml_result.get("added") else None
+                info_df["block_added_path"] = folder_result["added"] if folder_result.get("added") else None
+                info_df["qtd_blocks_added"] = len(folder_result["added"]) if folder_result.get("added") else 0
+                extract_blocks_to_csv(yaml_result['added'], info_df, 'added')
 
-    extract_blocks_to_csv(added_yaml_result, "blocks_added.csv", file.filename)
-    extract_blocks_to_csv(removed_yaml_result, "blocks_removed.csv", file.filename)
+    execution_time = datetime.now() - ini
 
+    with open("execution_time.txt", "w") as f:
+        f.write(f"Time: {execution_time}\n")

@@ -30,4 +30,5 @@ def generate_code_report_from_csv(csv_path: str, output_txt: str = "code_report.
     print(f"Code report generated: {output_txt}")
     return output_txt
 
-generate_code_report_from_csv("blocks_added.csv", "blocks_report.txt")
+generate_code_report_from_csv("added_result.csv", "code_report_added.txt")
+generate_code_report_from_csv("removed_result.csv", "code_report_removed.txt")
