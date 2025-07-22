@@ -24,3 +24,8 @@ Capturar todos os blocos adicionados e removidos
 Para cada bloco adicionado que é igual ao bloco removido, remover eles (blocos movidos)
 
 Search blocos de código adicionados
+
+
+# TODO
+- fix collumn: qtd_blocks_removed, qtd_blocks_added
+- fix collumn: simian_result_removed
