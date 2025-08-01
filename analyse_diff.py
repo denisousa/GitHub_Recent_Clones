@@ -1,4 +1,3 @@
-from github import Github, Auth
 from dotenv import load_dotenv
 from lsh_operation import filter_unique_code_blocks
 from github_operations import fetch_recent_merged_prs, extract_java_diffs_from_pr, clone_and_checkout_pr_base_commit
@@ -43,12 +42,10 @@ def remove_prints_comments_and_blank_lines(java_code: str) -> str:
     java_code = "\n".join(line for line in java_code.splitlines() if line.strip())
     return java_code
 
-
 def clean_java_code(java_code):
     # TODO: Put Formatter Java Code
     cleaned_code = remove_prints_comments_and_blank_lines(java_code)
     return cleaned_code
-
 
 def extract_valid_blocks(diff_file_path, min_block_size):
     with open(diff_file_path, encoding='utf-8') as file:
@@ -97,7 +94,6 @@ def extract_valid_blocks(diff_file_path, min_block_size):
             code_block['added'].append(''.join(current_block))
 
     return code_block
-
 
 def generate_diff_file(file, filename: str) -> None:
     diff_text = ''

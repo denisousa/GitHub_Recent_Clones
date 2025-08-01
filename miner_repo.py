@@ -78,5 +78,3 @@ def get_repositories():
             print(f"⚠️ Error processing {repo['full_name']}: {e}")
         time.sleep(1)  # Prevent API rate limit issues
 
-# if __name__ == '__main__':
-#     main()

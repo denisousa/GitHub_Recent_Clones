@@ -10,11 +10,14 @@ repos.json
 added_result.csv
 removed_result.csv
 
+repo/*
+
 added_*.yaml
 removed_*.yaml
 blocks/*
 artifacts
 blocks_report.txt
+execution_time.txt
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

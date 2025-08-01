@@ -7,7 +7,7 @@ def check_cb(blocks_list, type_operation):
         return True
     return False
 
-def check_oc(blocks_list, type_operation):
+def check_ic(blocks_list, type_operation):
     if len([block for block in blocks_list if f"blocks_{type_operation}" not in block.get("sourceFile", "")]) > 1:
         return True
     return False
@@ -23,17 +23,17 @@ def check_cboc(blocks_list, type_operation):
 def get_category(blocks, type_operation):
     category = []
     validy_cb = check_cb(blocks, type_operation)
-    validy_oc = check_oc(blocks, type_operation)
+    validy_ic = check_ic(blocks, type_operation)
     validy_cboc = check_cboc(blocks, type_operation)
 
     if validy_cb:
         category.append('C.B')
 
-    if validy_oc:
-        category.append('O.C')
+    if validy_ic:
+        category.append('I.C')
 
     if validy_cboc:
-        category.append('C.B.O.C')
+        category.append('C.B.I.C')
     
     return category
 
