@@ -148,7 +148,7 @@ if __name__ == "__main__":
     os.makedirs(simian_result, exist_ok=True)
 
     output_diffs = 'diff_files'
-    merged_prs = fetch_recent_merged_prs(repo_name, 365)
+    merged_prs = fetch_recent_merged_prs(repo_name, 30)
 
     remove_files_test = 0
     os.system("rm -rf added_result.csv removed_result.csv")

@@ -1,4 +1,6 @@
-from github import Auth, Github
+from github import Github, Auth
+from datetime import datetime, timedelta, timezone
+from github import Auth
 import os
 import subprocess
 import requests
@@ -180,8 +182,6 @@ def checkout_repo_commit_by_index(repo_name: str, commit_index: int, local_dir: 
     return os.path.abspath(local_dir)
 
 
-from github import Github, Auth
-from datetime import datetime, timedelta, timezone
 
 def get_closed_prs_before_days(repo_name: str, token: str, days: int):
     # TODO: Get merged commit

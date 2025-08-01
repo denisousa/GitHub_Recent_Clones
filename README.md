@@ -14,6 +14,13 @@ GH_TOKEN=<your_github_token>
 pip install requirements.txt
 ```
 
+4. Install dependecies:
+```cmd
+main.py - Execute a test to GET OPEN PRs
+analyse_diff.py - Get PRs from project e execyte Simian
+get_metric.py - You execute after 'analyse_diff.py'
+```
+
 
 Heurística:
 **Clones adicionados**
