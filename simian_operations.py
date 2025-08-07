@@ -1,5 +1,6 @@
 import os 
 import yaml
+
 def execute_simian(folder1, folder2, extension_language, output_filename):
     '''
     Only works using Java Version >== 17

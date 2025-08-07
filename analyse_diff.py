@@ -1,5 +1,5 @@
 from dotenv import load_dotenv
-from lsh_operation import filter_unique_code_blocks
+from lsh_operation import filter_unique_code_blocks, remove_code_clones
 from github_operations import fetch_recent_merged_prs, extract_java_diffs_from_pr, clone_and_checkout_pr_base_commit
 from simian_operations import execute_simian
 from yaml_operations import extract_blocks_to_csv
@@ -23,27 +23,28 @@ def save_code_blocks(type_folder, blocks: dict, base_dir: str = "."):
     os.system(f'rm -rf "{folder_path}"')
     os.makedirs(folder_path)
 
-    for i, code in enumerate(block_list, start=1):
-        file_path = os.path.join(folder_path, f"block_{i}.java")
+    for i, block in enumerate(block_list, start=1):
+        file_path = os.path.join(folder_path, f"block_{i}_{block['filename']}.java")
         with open(file_path, "w", encoding="utf-8") as f:
-            f.write(code)
+            f.write(block['block'])
 
     print(f"Saved {len(block_list)} blocks to '{folder_name}'")
 
     return folder_path
 
 def remove_prints_comments_and_blank_lines(java_code: str) -> str:
-    java_code = re.sub(r'/\*[\s\S]*?\*/', '', java_code)
-    java_code = re.sub(r'//.*', '', java_code)
-    java_code = re.sub(
+    java_code_block = java_code['block']
+    java_code_block = re.sub(r'/\*[\s\S]*?\*/', '', java_code_block)
+    java_code_block = re.sub(r'//.*', '', java_code_block)
+    java_code_block = re.sub(
         r'\bSystem\.out\.print(?:ln)?\s*\((?:[^()"]+|"(?:\\.|[^"\\])*")*\)\s*;',
-        '', java_code
+        '', java_code_block
     )
-    java_code = "\n".join(line for line in java_code.splitlines() if line.strip())
+    java_code_block = "\n".join(line for line in java_code_block.splitlines() if line.strip())
+    java_code['block'] = java_code_block
     return java_code
 
 def clean_java_code(java_code):
-    # TODO: Put Formatter Java Code
     cleaned_code = remove_prints_comments_and_blank_lines(java_code)
     return cleaned_code
 
@@ -55,7 +56,12 @@ def extract_valid_blocks(diff_file_path, min_block_size):
     current_block = []  # Store current block lines without '+' or '-'
     current_type = None  # '+' or '-'
 
-    for line in lines[3:]:  # Skip first 3 diff lines
+
+    for line in lines:
+        
+        if 'diff --git' in line:
+            filename =  line.split(' ')[-1].replace('/','_')
+        
         if line.startswith('+') or line.startswith('-'):
             content = line[1:]  # Remove '+' or '-'
 
@@ -68,9 +74,9 @@ def extract_valid_blocks(diff_file_path, min_block_size):
                 # Store previous block if large enough
                 if len(current_block) >= min_block_size:
                     if current_type == '-':
-                        code_block['removed'].append(''.join(current_block))
+                        code_block['removed'].append({'block': ''.join(current_block), 'filename': filename})
                     elif current_type == '+':
-                        code_block['added'].append(''.join(current_block))
+                        code_block['added'].append({'block': ''.join(current_block), 'filename': filename})
 
                 # Start new block
                 current_type = line[0]
@@ -79,9 +85,9 @@ def extract_valid_blocks(diff_file_path, min_block_size):
             # Non-modified line → finalize current block if needed
             if len(current_block) >= min_block_size:
                 if current_type == '-':
-                    code_block['removed'].append(''.join(current_block))
+                    code_block['removed'].append({'block': ''.join(current_block), 'filename': filename})
                 elif current_type == '+':
-                    code_block['added'].append(''.join(current_block))
+                    code_block['added'].append({'block': ''.join(current_block), 'filename': filename})
 
             current_type = None
             current_block = []
@@ -89,9 +95,9 @@ def extract_valid_blocks(diff_file_path, min_block_size):
     # Final check for last block
     if len(current_block) >= min_block_size:
         if current_type == '-':
-            code_block['removed'].append(''.join(current_block))
+            code_block['removed'].append({'block': ''.join(current_block), 'filename': filename})
         elif current_type == '+':
-            code_block['added'].append(''.join(current_block))
+            code_block['added'].append({'block': ''.join(current_block), 'filename': filename})
 
     return code_block
 
@@ -148,12 +154,12 @@ if __name__ == "__main__":
     os.makedirs(simian_result, exist_ok=True)
 
     output_diffs = 'diff_files'
-    merged_prs = fetch_recent_merged_prs(repo_name, 30)
+    merged_prs = fetch_recent_merged_prs(repo_name, 365 + 365)
 
     remove_files_test = 0
     os.system("rm -rf added_result.csv removed_result.csv")
 
-    for pr in merged_prs:
+    for pr in merged_prs[70:]:
         clone_and_checkout_pr_base_commit(repo_name, pr["number"], base_dir=repos_list)
         extract_java_diffs_from_pr(pr, output_diffs)
         
@@ -184,24 +190,30 @@ if __name__ == "__main__":
             folder_name = repo_name.split('/')[-1] 
             folder_result = {}
             yaml_result = {}
-            if len(blocks['removed']) != 0:
-                blocks['removed'] = [clean_java_code(block) for block in blocks['removed']]
-                blocks = filter_unique_code_blocks(blocks)
-                folder_result['removed'] = save_code_blocks('removed', blocks)
-                yaml_result['removed'] = f'{simian_result}/removed_{folder_name}_pr{pr["number"]}.yaml'
-                execute_simian(folder_result['removed'], repo_complete_path, 'java', yaml_result['removed'])
-                info_df["simian_result_removed"] = yaml_result["added"] if yaml_result.get("added") else None
-                info_df["block_removed_path"] = folder_result["removed"] if folder_result.get("removed") else None
-                info_df["qtd_blocks_removed"] = len(folder_result["removed"]) if folder_result.get("removed") else 0
-                extract_blocks_to_csv(yaml_result['removed'], info_df, 'removed')
+            # if len(blocks['removed']) != 0:
+            #     blocks['removed'] = [clean_java_code(block) for block in blocks['removed']]
+            #     blocks = remove_code_clones(blocks)
+            #     folder_result['removed'] = save_code_blocks('removed', blocks)
+            #     yaml_result['removed'] = f'{simian_result}/removed_{folder_name}_pr{pr["number"]}.yaml'
+            #     execute_simian(folder_result['removed'], repo_complete_path, 'java', yaml_result['removed'])
+            #     info_df["block_removed_path"] = folder_result["removed"] if folder_result.get("removed") else None
+            #     info_df["qtd_blocks_removed"] = len(folder_result["removed"]) if folder_result.get("removed") else 0
+            #     extract_blocks_to_csv(yaml_result['removed'], info_df, 'removed')
+
+            info_df = {
+                "repo_name": repo_name,
+                "repo_link": f"https://github.com/{repo_name}",
+                "pr_link": f"https://github.com/{repo_name}/pull/{pr['number']}",
+                "pr_diff": pr["diff_url"],
+                "pr_number": pr["number"]
+            }
 
             if len(blocks['added']) != 0:
                 blocks['added'] = [clean_java_code(block) for block in blocks['added']]
-                blocks = filter_unique_code_blocks(blocks)
+                # blocks = remove_code_clones(blocks)
                 folder_result['added'] = save_code_blocks('added', blocks)
                 yaml_result['added'] = f'{simian_result}/added_{folder_name}_pr{pr["number"]}.yaml'
                 execute_simian(folder_result['added'], repo_complete_path, 'java', yaml_result['added'])
-                info_df["simian_result_addeed"] = yaml_result["added"] if yaml_result.get("added") else None
                 info_df["block_added_path"] = folder_result["added"] if folder_result.get("added") else None
                 info_df["qtd_blocks_added"] = len(folder_result["added"]) if folder_result.get("added") else 0
                 extract_blocks_to_csv(yaml_result['added'], info_df, 'added')
